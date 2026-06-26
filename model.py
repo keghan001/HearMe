@@ -53,8 +53,31 @@ class AudioCNN(nn.Module):
         self.layer3 = nn.ModuleList(
             [ResidualBlock(128 if i == 0 else 256,256) for i in range(6)])
         self.layer4 = nn.ModuleList(
-            [ResidualBlock(256 if i == 0 else 512, 256) for i in range(3)])
+            [ResidualBlock(256 if i == 0 else 512, 512) for i in range(3)])
         
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1,1)),
+            nn.Flatten(),
+            nn.Dropout(0.5),
+            nn.Linear(512, num_classes)
+        )
         
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
         
+        out = self.classifier(out)
+        
+        return out
+    
+    
+    
+
+
+if __name__ == "__main__":
+    aud = AudioCNN()
+    print(aud.classifier[-1])
         
