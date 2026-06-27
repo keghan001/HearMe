@@ -1,9 +1,18 @@
-import modal
-import torch
-from torch.utils.data import Dataset
 from pathlib import Path
 import pandas as pd
+import numpy as np
+
+import modal
+import torch
+from torch.utils.data import DataLoader, Dataset
 import torchaudio
+import torch.nn as nn
+import torchaudio.transforms as T
+import torch.optim as optim
+from torch.optim.lr_scheduler import OneCycleLR
+from tqdm import tqdm
+
+from model import AudioCNN
 
 app = modal.App("hear-me")
 
@@ -61,12 +70,119 @@ class ESC50Dataset(Dataset):
         return spectogram, row["label"]
             
 
+def mixup_data(x, y):
+    """Mixing up audio two files(Augmentation) to produce varied data for training
+    """
+    lam = np.random.beta(0.2, 0.2)
+    
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size).to(x.device)
+    
+    # (0.7 * audio1) + (0.3 * audio2)
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 @app.function(image=image, gpu="A10G", volumes={"/data": volume, "/models": model_volume}, timeout= 60 * 60 * 3)
 def train():
-    print("Training...")
+    esc50_dir = Path("/opt/esc50-data")
+    
+    train_transform = nn.Sequential(
+        T.MelSpectrogram(
+            sample_rate=22050,
+            n_fft=1024,
+            hop_length=512,
+            n_mels=128,
+            f_min=0,
+            f_max=11025
+        ),
+        T.AmplitudeToDB(),
+        T.FrequencyMasking(freq_mask_param=30),
+        T.TimeMasking(time_mask_param=80)
+    )
 
+    val_transform = nn.Sequential(
+        T.MelSpectrogram(
+            sample_rate=22050,
+            n_fft=1024,
+            hop_length=512,
+            n_mels=128,
+            f_min=0,
+            f_max=11025
+        ),
+        T.AmplitudeToDB()
+    )
+    
+    train_dataset = ESC50Dataset(
+        data_dir=esc50_dir, metadata_file=esc50_dir / "meta" / "esc50.csv", split="train", transform=train_transform
+    )
 
+    val_dataset = ESC50Dataset(
+        data_dir=esc50_dir, metadata_file=esc50_dir / "meta" / "esc50.csv", split="val", transform=val_transform
+    )
+    
+    print(f"Training samples: {len(train_dataset)}")
+    print(f"Training samples: {len(val_dataset)}")
+    
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = AudioCNN(num_classes=len(train_dataset.classes))
+    model.to(device)
+    
+    # model hyperparameters
+    num_epochs = 100
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1) 
+    optimizer = optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.01)
+    
+    scheduler = OneCycleLR(
+        optimizer=optimizer,
+        max_lr=0.002,
+        epochs=num_epochs,
+        steps_per_epoch=len(train_loader),
+        pct_start=0.1
+    )
+    
+    best_accuracy = 0.0
+    
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss:float = 0.0
+        
+        progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
+        for data, target in progress_bar:
+            data, target = data.to(device), target.to(device)
+            
+            if np.random.random() > 0.7:
+                data, target_a, target_b, lam = mixup_data(data, target)
+                output = model(data)
+                
+                loss = mixup_criterion(
+                    criterion, output, target_a, target_b, lam)
+            else: 
+                output = model(data)
+                loss = criterion(output, target)
+                
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            
+            epoch_loss += loss.item()
+            progress_bar.set_postfix({'Loss': f'{loss.item():.4f}'})
+            
+        avg_epoch_loss = epoch_loss / len(train_loader)
+        
+        
+            
+        
+    
+    
 @app.local_entrypoint()
 def main():
     train.remote()

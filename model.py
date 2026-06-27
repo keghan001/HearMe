@@ -39,6 +39,8 @@ class ResidualBlock(nn.Module):
     
 
 class AudioCNN(nn.Module):
+    """Convolutional Neural Network model for audio classisfication"""
+    
     def __init__(self, num_classes=50) -> None:
         super().__init__()
         self.conv1 = nn.Sequential(
