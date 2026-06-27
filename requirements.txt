@@ -9,3 +9,4 @@ fastapi
 librosa
 pydantic
 soundfile
+torchcodec
