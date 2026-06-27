@@ -178,10 +178,46 @@ def train():
             
         avg_epoch_loss = epoch_loss / len(train_loader)
         
+        #Validation after each epoch
+        model.eval()
         
+        correct = 0
+        total = 0
+        val_loss = 0
+        
+        with torch.no_grad():
+            val_progress_bar = tqdm(test_loader, desc=f"Validation: {epoch+1}/{num_epochs}")
+            for data, target in val_progress_bar:
+                data, target = data.to(device), target.to(device)
+                
+                outputs = model(data)
+                loss = criterion(outputs, target)
+                val_loss += loss.item()
+                
+                predicted = torch.argmax(outputs.data, 1)
+                total += target.size(0)
+                correct += (predicted == target).sum().item()
+                val_progress_bar.set_postfix({'Validation loss': f'{loss.item():.4f}'})
             
+        accuracy = 100 * correct / total
+        avg_val_loss = val_loss / len(test_loader)
         
-    
+        print(
+            f"Epoch {epoch+1} Loss: {avg_epoch_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Accuracy: {accuracy:.2f}%"
+        )
+        
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'accuracy': accuracy,
+                'epoch': epoch,
+                'classes': train_dataset.classes
+            }, '/modes/best_model.pth')    
+            
+        print(f"New best model saved: {accuracy:.2f}%")
+        
+    print(f"Training completed! Best accuracy: {best_accuracy:.2f}%")
     
 @app.local_entrypoint()
 def main():
