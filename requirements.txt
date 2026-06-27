@@ -1,4 +1,5 @@
-pippandas
+pip
+pandas
 torchaudio
 torch
 tqdm
