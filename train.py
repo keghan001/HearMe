@@ -224,9 +224,9 @@ def train():
                 'accuracy': accuracy,
                 'epoch': epoch,
                 'classes': train_dataset.classes
-            }, '/modes/best_model.pth')    
+            }, '/models/best_model.pth')    
             
-        print(f"New best model saved: {accuracy:.2f}%")
+        print(f"New best model saved: {best_accuracy:.2f}%")
     
     writer.close()
     print(f"Training completed! Best accuracy: {best_accuracy:.2f}%")

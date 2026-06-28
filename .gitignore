@@ -2,3 +2,4 @@
 .audiocnn
 
 __pycache__
+tensorboard_logs
