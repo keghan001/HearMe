@@ -24,7 +24,7 @@ class ResidualBlock(nn.Module):
                 nn.Conv2d(in_channels, out_channels, 1, stride, bias=False), nn.BatchNorm2d(out_channels)
             )
         
-    def forward(self, x):
+    def forward(self, x, fmap_dict=None, prefix=""):
         out = self.conv1(x)
         out = self.bn1(out)
         out = F.relu(out)
@@ -33,7 +33,13 @@ class ResidualBlock(nn.Module):
         
         shortcut = self.shortcut(x) if self.use_shortcut else x
         out_add = out + shortcut
+        
+        if fmap_dict is not None:
+            fmap_dict[f"{prefix}.conv"] = out_add
+            
         out = F.relu(out_add)
+        if fmap_dict is not None:
+            fmap_dict[f"{prefix}.relu"] = out
         
         return out
     
@@ -64,24 +70,48 @@ class AudioCNN(nn.Module):
             nn.Linear(512, num_classes)
         )
         
-    def forward(self, x):
-        out = self.conv1(x)
-        
-        for block in self.layer1:
-            out = block(out)
-        for block in self.layer2:
-            out = block(out)
-        for block in self.layer3:
-            out = block(out)
-        for block in self.layer4:
-            out = block(out)
+    def forward(self, x, return_feature_maps=False):
+        if not return_feature_maps:
+            out = self.conv1(x)
             
-        
-        out = self.classifier(out)
-        
-        return out
-    
-    
+            for block in self.layer1:
+                out = block(out)
+            for block in self.layer2:
+                out = block(out)
+            for block in self.layer3:
+                out = block(out)
+            for block in self.layer4:
+                out = block(out)
+                
+            
+            out = self.classifier(out)
+            
+            return out
+        else: 
+            feature_maps = {}
+            out = self.conv1(x)
+            feature_maps["conv1"] = out
+            
+            for i, block in enumerate(self.layer1):
+                out = block(out, feature_maps, prefix=f"layer1.block{i}")
+            feature_maps["layer1"] = out
+            
+            for i, block in enumerate(self.layer2):
+                out = block(out, feature_maps, prefix=f"layer2.block{i}")
+            feature_maps["layer2"] = out
+                
+            for i, block in enumerate(self.layer3):
+                out = block(out, feature_maps, prefix=f"layer3.block{i}")
+            feature_maps["layer3"] = out
+                
+            for i, block in enumerate(self.layer4):
+                out = block(out, feature_maps, prefix=f"layer4.block{i}")
+            feature_maps["layer4"] = out
+                
+            
+            out = self.classifier(out)
+            
+            return out, feature_maps
     
 
 
